@@ -1,0 +1,418 @@
+#!/usr/bin/env python3
+
+import sys, re
+
+# Create slippy_commands_list from given file
+if '-f' == sys.argv[1]:
+    with open(sys.argv[2]) as commandfile:
+        entirefile = commandfile.read()
+    slippy_commands_list = re.split(';|\n', entirefile)
+    for i in range(len(slippy_commands_list)):
+        if slippy_commands_list[i] == '':
+            slippy_commands_list.remove('')
+            break
+        slippy_commands_list[i] = re.sub(r'#.*$', '', slippy_commands_list[i]).replace(' ','')
+
+# If input files are specified, use those, otherwise set files to a value that won't work
+if sys.argv[1] == "-f":
+    if sys.argv[3:]:
+        files = sys.argv[3:]
+    else:
+        files = "1"
+elif sys.argv[2:]:
+    files = sys.argv[2:]
+else:
+    files = "1"
+
+# If comma separated pair of addresses is used, command_range tracks whether the line is in range
+command_range = 0
+
+line_number = 0
+
+for inputfile in files:
+    try:
+        sys.stdin = open(inputfile, 'r')
+    except:
+        pass
+    
+    line = sys.stdin.readline()
+    nextline = sys.stdin.readline()
+    while line:
+        print_line = 1
+        line_number += 1
+        # run EACH slippy command on each line
+        # Split all commands into list separated by newline or ;
+        # Handle comments here as well
+        if (sys.argv[1] == '-n'):
+            print_line = 0
+            slippy_commands_list = sys.argv[2]
+            slippy_commands_list = re.split(';|\n', sys.argv[2])
+            for i in range(len(slippy_commands_list)):
+                slippy_commands_list[i] = re.sub(r'#.*$', '', slippy_commands_list[i]).replace(' ','')
+        elif (sys.argv[1] != '-f'):
+            slippy_commands_list = sys.argv[1]
+            slippy_commands_list = re.split(';|\n', sys.argv[1])
+            for i in range(len(slippy_commands_list)):
+                slippy_commands_list[i] = re.sub(r'#.*$', '', slippy_commands_list[i]).replace(' ','')
+        for slippy_commands in slippy_commands_list:
+            # if address is comma separated, process into L1/R1 and L2/R2 (start and end of range)
+            # Program will execute each command if command_range == 1 and address is comma separated
+            if ',' in slippy_commands:
+                half1 = slippy_commands.split(',')[0]
+                half2 = slippy_commands.split(',')[1]
+                # L is for line addresses, R is for regex addresses
+                L1, R1, L2, R2 = "", "", "", ""
+                # Line address
+                if '/' not in half1:
+                    L1 = int(half1)
+                # Regex address
+                elif '/' in half1:
+                    R1 = half1.split('/')[1]
+                # Line address
+                if ('/' != half2[0]):
+                    L2 = re.search('[0-9]+', half2)
+                    L2 = int(L2.group(0))
+                # Regex address
+                else:
+                    R2 = re.search('[0-9$^]+', half2)
+                    R2 = R2.group(0)
+            if line == '':
+                sys.stdin.close()
+                sys.exit(0)
+            elif slippy_commands == '':
+                pass
+            if slippy_commands[-1] == 'q':
+                #for line addresses
+                if '/' not in slippy_commands[0:-1]:
+                    if slippy_commands[0] == "$":
+                        # Execute command if line is last line (nextline = "")
+                        if nextline == "":
+                            for i in range(print_line):
+                                print(line,end='')
+                            sys.stdin.close()
+                            sys.exit(0)
+                    else:
+                        address = int(slippy_commands[0:-1])
+                        if line_number == address:
+                            for i in range(print_line):
+                                print(line,end='')
+                            sys.stdin.close()
+                            sys.exit(0)
+                # for regex addresses, use re.search and re.sub
+                elif '/' in slippy_commands[0:-1]:
+                    regex = slippy_commands.split('/')[1]
+                    if re.search(regex, line):
+                        for i in range(print_line):
+                            print(line,end='')
+                        sys.stdin.close()
+                        sys.exit(0)
+                else:
+                    print('usage: slippy [-i] [-n] [-f <script-file> | <sed-command>] [<files>...]', file = sys.stderr)
+                    sys.stdin.close()
+                    sys.exit(1)
+            elif slippy_commands[-1] == 'p':
+                if slippy_commands == 'p':
+                    print(line,end='')
+                # if address is comma separated
+                elif ',' in slippy_commands:
+                    # Check if line is now in the address range
+                    if command_range == 0:
+                        if L1:
+                            if L1 == '$':
+                                if nextline == "":
+                                    command_range = 1
+                            elif L1 == line_number:
+                                command_range = 1
+                        elif R1 == '$':
+                            if nextline == "":
+                                command_range = 1
+                        else:
+                            if re.search(R1, line):
+                                command_range = 1
+                    # Check if line is now out of address range
+                    elif command_range == 1:
+                        if L2:
+                            if L2 == '$':
+                                if nextline == "":
+                                    # Execute command then change range
+                                    if print_line != 0:
+                                        print(line,end='')
+                                    command_range = 0
+                            elif L2 == line_number:
+                                # Execute command then change range
+                                if print_line != 0:
+                                    print(line,end='')
+                                command_range = 0
+                        elif R2 == '$':
+                            if nextline == "":
+                                # Execute command then change range
+                                if print_line != 0:
+                                    print(line,end='')
+                                command_range = 0
+                        elif re.search(R2, line):
+                            # Execute command then change range
+                            if print_line != 0:
+                                print(line,end='')
+                            command_range = 0
+                    # Execute command
+                    if command_range == 1:
+                        if print_line != 0:
+                            print(line,end='')
+                #for line addresses
+                elif '/' not in slippy_commands[0:-1]:
+                    if slippy_commands[0] == "$":
+                    # Execute command if line is last line (nextline = "")
+                        if nextline == "":
+                            print(line,end='')
+                    else:
+                        address = int(slippy_commands[0:-1])
+                        if line_number == address:
+                            print(line,end='')
+                # for regex addresses, use re.search and re.sub
+                elif '/' in slippy_commands[0:-1]:
+                    regex = slippy_commands.split('/')[1]
+                    # print(regex)
+                    if re.search(regex, line):    
+                        print(line,end='')
+                else:
+                    print('usage: slippy [-i] [-n] [-f <script-file> | <sed-command>] [<files>...]', file = sys.stderr)
+                    sys.stdin.close()
+                    sys.exit(1)
+            elif slippy_commands[-1] == 'd':
+                if (slippy_commands == 'd') | (sys.argv[1] == '-n'):
+                    print_line = 0
+                    break
+                # if address is comma separated
+                elif ',' in slippy_commands:
+                    # Check if line is now in the address range
+                    if command_range == 0:
+                        if L1:
+                            if L1 == '$':
+                                if nextline == "":
+                                    command_range = 1
+                            elif L1 == line_number:
+                                command_range = 1
+                        elif R1 == '$':
+                            if nextline == "":
+                                command_range = 1
+                        else:
+                            if re.search(R1, line):
+                                command_range = 1
+                    # Check if line is now out of address range
+                    elif command_range == 1:
+                        if L2:
+                            if L2 == '$':
+                                if nextline == "":
+                                    # Execute command then change range
+                                    print_line = 0
+                                    command_range = 0
+                            elif L2 == line_number:
+                                # Execute command then change range
+                                print_line = 0
+                                command_range = 0
+                        elif R2 == '$':
+                            if nextline == "":
+                                # Execute command then change range
+                                print_line = 0
+                                command_range = 0
+                        elif re.search(R2, line):
+                            # Execute command then change range
+                            print_line = 0
+                            command_range = 0
+                    # Execute command
+                    if command_range == 1:
+                        print_line = 0
+                #print line if line is not specified, otherwise continue
+                #for line addresses
+                elif '/' not in slippy_commands[0:-1]:
+                    if slippy_commands[0] == "$":
+                    # Execute command if line is last line (nextline = "")
+                        if nextline == "":
+                            print_line = 0
+                            break
+                    else:
+                        address = int(slippy_commands[0:-1])
+                        if line_number == address:
+                            print_line = 0
+                            break
+                # for regex addresses, use re.search and re.sub
+                elif '/' in slippy_commands[0:-1]:
+                    regex = slippy_commands.split('/')[1]
+                    if re.search(regex, line):
+                        print_line = 0
+                        break
+                else:
+                    print('usage: slippy [-i] [-n] [-f <script-file> | <sed-command>] [<files>...]', file = sys.stderr)
+                    sys.stdin.close()
+                    sys.exit(1)
+            elif ('/' in slippy_commands) & (slippy_commands.split('s')[1][0] == '/'):
+                substitution = slippy_commands.split('/')
+                # if address is comma separated
+                if ',' in slippy_commands:
+                    # Check if line is now in the address range
+                    if command_range == 0:
+                        if L1:
+                            if L1 == '$':
+                                if nextline == "":
+                                    command_range = 1
+                            elif L1 == line_number:
+                                command_range = 1
+                        elif R1 == '$':
+                            if nextline == "":
+                                command_range = 1
+                        else:
+                            if re.search(R1, line):
+                                command_range = 1
+                    # Check if line is now out of address range
+                    elif command_range == 1:
+                        if L2:
+                            if L2 == '$':
+                                if nextline == "":
+                                    command_range = 0
+                            if L2 == line_number:
+                                command_range = 0
+                        elif re.search(R2, line):
+                            # Execute command then change range
+                            # Manually find the substitution, as number of '/' characters is unknown
+                            original = slippy_commands.split('s')[1].split('/')[1]
+                            replacement = slippy_commands.split('s')[1].split('/')[2]
+                            if substitution[-1] == 'g':
+                                line = re.sub(original, replacement, line)
+                            else:
+                                line = re.sub(original, replacement, line, count=1)
+                            command_range = 0
+                    # Execute command
+                    # Manually find the substitution, as number of '/' characters is unknown
+                    original = slippy_commands.split('s')[1].split('/')[1]
+                    replacement = slippy_commands.split('s')[1].split('/')[2]
+                    if command_range == 1:
+                        if substitution[-1] == 'g':
+                            line = re.sub(original, replacement, line)
+                        else:
+                            line = re.sub(original, replacement, line, count=1)
+                #if regex address
+                elif substitution[2] == 's':
+                    regex = substitution[1]
+                    # if the line a substitution line
+                    if re.search(regex, line):
+                        # if the substitution is valid
+                        if re.search(substitution[1], line):
+                            if substitution[-1] == 'g':
+                                line = re.sub(substitution[3], substitution[4], line)
+                            else:
+                                line = re.sub(substitution[3], substitution[4], line, count=1)
+                #if line address
+                elif (substitution[0][0] != 's') & (substitution[0][-1] == 's'):
+                    if substitution[0][0] == "$":
+                    # Execute command if line is last line (nextline = "")
+                        if nextline == "":
+                            address = line_number
+                        else:
+                            address = ""
+                    else:
+                        address = int(substitution[0][0])
+                    if line_number == address:
+                        if re.search(substitution[1], line):
+                            if substitution[-1] == 'g':
+                                line = re.sub(substitution[1], substitution[2], line)
+                            else:
+                                line = re.sub(substitution[1], substitution[2], line, count=1)
+                elif substitution[0][0] == 's':
+                    #substitute on every line
+                    if re.search(substitution[1], line):
+                        if substitution[-1] == 'g':
+                            line = re.sub(substitution[1], substitution[2], line)
+                        else:
+                            line = re.sub(substitution[1], substitution[2], line, count=1)
+                # for regex addresses, use re.search and re.sub
+                else:
+                    print('usage: slippy [-i] [-n] [-f <script-file> | <sed-command>] [<files>...]', file = sys.stderr)
+                    sys.stdin.close()
+                    sys.exit(1)
+            # Command s delimited by non '/' character
+            elif ('s' in slippy_commands):
+                delimiter = slippy_commands.split('s')[1][0]
+                substitution = slippy_commands.split(delimiter)
+                # if address is comma separated
+                if ',' in slippy_commands:
+                    # Check if line is now in the address range
+                    if command_range == 0:
+                        if L1:
+                            if L1 == line_number:
+                                command_range = 1
+                            elif L1 == '$':
+                                if nextline == "":
+                                    command_range = 1
+                        elif re.search(R1, line):
+                            # Execute command then change range
+                            # Manually find the substitution, as number of '/' characters is unknown
+                            original = slippy_commands.split('s')[1].split(delimiter)[1]
+                            replacement = slippy_commands.split('s')[1].split(delimiter)[2]
+                            if command_range == 1:
+                                if substitution[-1] == 'g':
+                                    line = re.sub(original, replacement, line)
+                                else:
+                                    line = re.sub(original, replacement, line, count=1)
+                            command_range = 1
+                    # Check if line is now out of address range
+                    elif command_range == 1:
+                        if L2:
+                            if L2 == line_number:
+                                command_range = 0
+                            elif L2 == '$':
+                                if nextline == "":
+                                    command_range = 0
+                        elif re.search(R2, line):
+                            command_range = 0
+                    # Execute command
+                    # Manually find the substitution, as number of '/' characters is unknown
+                    original = slippy_commands.split('s')[1].split(delimiter)[1]
+                    replacement = slippy_commands.split('s')[1].split(delimiter)[2]
+                    if command_range == 1:
+                        if substitution[-1] == 'g':
+                            line = re.sub(original, replacement, line)
+                        else:
+                            line = re.sub(original, replacement, line, count=1)
+                # If regex address
+                if substitution[2] == 's':
+                    regex = substitution[1]
+                    # if the line a substitution line
+                    if re.search(regex, line):
+                        # if the substitution is valid
+                        if re.search(substitution[1], line):
+                            if substitution[-1] == 'g':
+                                line = re.sub(substitution[3], substitution[4], line)
+                            else:
+                                line = re.sub(substitution[3], substitution[4], line, count=1)
+                # If line address
+                elif (substitution[0][0] != 's') & (substitution[0][-1] == 's'):
+                    if substitution[0][0] == '$':
+                    # Execute command if line is last line (nextline = "")
+                        if nextline == "":
+                            address = line_number
+                        else:
+                            address = ""
+                    else:
+                        address = int(substitution[0][0])
+                    if line_number == address:
+                        if re.search(substitution[1], line):
+                            if substitution[-1] == 'g':
+                                line = re.sub(substitution[1], substitution[2], line)
+                            else:
+                                line = re.sub(substitution[1], substitution[2], line, count=1)
+                elif substitution[0][0] == 's':
+                    #substitute on every line
+                    if re.search(substitution[1], line):
+                        if substitution[-1] == 'g':
+                            line = re.sub(substitution[1], substitution[2], line)
+                        else:
+                            line = re.sub(substitution[1], substitution[2], line, count=1)
+            else:
+                print('usage: slippy [-i] [-n] [-f <script-file> | <sed-command>] [<files>...]', file = sys.stderr)
+                sys.stdin.close()
+                sys.exit(1)
+        for i in range(print_line):
+            print(line,end='')
+        line = nextline
+        nextline = sys.stdin.readline()
+    sys.stdin.close()
